@@ -16,14 +16,7 @@ if not api_key:
     st.error("⚠️ StreamlitのSecretsに GEMINI_API_KEY が設定されていません。")
     st.stop()
 
-# ★重要：クライアントを破棄させずキャッシュ（保持）する関数
-@st.cache_resource
-def get_client(key: str):
-    return genai.Client(api_key=key)
-
-client = get_client(api_key)
-
-# 千利休のプロンプト
+# 千利休のキャラクター設定
 SYSTEM_PROMPT = """
 # あなたの役割
 あなたは「堺の偉人・千利休」として、観光客と楽しく会話をするガイドキャラクターです。
@@ -41,47 +34,54 @@ SYSTEM_PROMPT = """
 3. 一度の発話は、音声合成で聞き取りやすいよう「3文（150文字程度）以内」に収めてください。
 """
 
-# 会話セッションの初期化
-if "chat" not in st.session_state:
-    try:
-        st.session_state.chat = client.chats.create(
-            model="gemini-2.0-flash-lite",
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.7,
-                max_output_tokens=1000,
-            ),
-        )
-    except Exception as e:
-        st.error(f"初期化エラーが発生しました: {e}")
-        st.stop()
-
+# 会話履歴（テキストのみ）を管理
+if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant", "content": "ようこそ堺へお越しくださいました。私、千利休と申します。どうぞお茶でも召し上がりながら、何なりとお尋ねくだされ。"}
     ]
 
-# 会話履歴の描画
+# 過去の会話履歴を画面に描画
 for msg in st.session_state.messages:
     avatar = "🍵" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
 
-# ユーザー入力
+# ユーザーからの入力受付
 if user_input := st.chat_input("千利休にお尋ねください..."):
+    # ユーザーの発言を記録・表示
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user", avatar="👤"):
         st.write(user_input)
 
+    # 千利休の返答生成
     with st.chat_message("assistant", avatar="🍵"):
         status_area = st.empty()
         with st.spinner("思案中..."):
             reply = None
             max_retries = 3
 
-            # サーバー混雑対策（503自動再試行）
+            # APIへ送信する会話履歴の組み立て
+            contents = []
+            for m in st.session_state.messages:
+                if m["role"] == "user":
+                    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=m["content"])]))
+                elif m["role"] == "assistant" and contents:
+                    contents.append(types.Content(role="model", parts=[types.Part.from_text(text=m["content"])]))
+
+            # サーバー混雑対策（503自動リトライ）
             for attempt in range(max_retries):
                 try:
-                    response = st.session_state.chat.send_message(user_input)
+                    # 都度クライアントを作成して通信（接続切断エラーを完全回避）
+                    client = genai.Client(api_key=api_key)
+                    response = client.models.generate_content(
+                        model="gemini-2.0-flash-lite",
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            temperature=0.7,
+                            max_output_tokens=1000,
+                        ),
+                    )
                     reply = response.text
                     break
                 except Exception as e:
