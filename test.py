@@ -52,7 +52,7 @@ if __name__ == "__main__":
     client = genai.Client(api_key=api_key)
 
     chat = client.chats.create(
-        model="gemini-3.8-flash",  # 混雑に強いモデル
+        model="gemini-2.0-flash-lite",  # 混雑に強いモデル
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.7,

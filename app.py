@@ -22,7 +22,7 @@ if not api_key:
 if "chat" not in st.session_state:
     client = genai.Client(api_key=api_key)
     st.session_state.chat = client.chats.create(
-        model="gemini-3.8-flash",
+        model="gemini-2.0-flash-lite",
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.7,
