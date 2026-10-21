@@ -3,9 +3,7 @@ import time
 from google import genai
 from google.genai import types
 
-client = genai.Client(api_key="YOUR_GEMINI_API_KEY")
-
-# 提供されたプロンプトをシステム指示として設定
+# 千利休のキャラクター設定（app.pyからも参照）
 system_prompt = """
 # あなたの役割
 あなたは「堺の偉人・千利休」として、観光客と楽しく会話をするガイドキャラクターです。
@@ -23,43 +21,52 @@ system_prompt = """
 3. 一度の発話は、音声合成で聞き取りやすいよう「3文（150文字程度）以内」に収めてください。
 """
 
-# 会話セッションの初期化
-chat = client.chats.create(
-    model="gemini-3.8-flash",
-    config=types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        temperature=0.7,  # 会話の自然さと設定遵守のバランス
-        max_output_tokens=1000,  # 150文字程度の制約を踏まえ、長文化を物理的に防ぐ
-    ),
-)
-
-
-
-# ターミナル上で対話するループ処理
-
-
-print("千利休との会話を開始します（終了するには 'exit' と入力）\n")
-
-while True:
-    user_input = input("あなた: ")
-    if user_input.lower() in ["exit", "終了", "quit"]:
-        break
-
-    # サーバー混雑対策：エラーが出ても3回まで再試行する
-    success = False
-    for attempt in range(3):
+# ★サーバー混雑（503）対策関数（test.py・app.py 共通）
+def send_message_with_retry(chat, user_input, max_retries=3, retry_delay=3, on_retry=None):
+    """
+    サーバー混雑エラーが発生した場合に自動で再試行する関数
+    """
+    for attempt in range(max_retries):
         try:
             response = chat.send_message(user_input)
-            print(f"\n千利休: {response.text}\n")
-            success = True
-            break
+            return response.text
         except Exception as e:
             if "503" in str(e) or "UNAVAILABLE" in str(e):
-                print(f"（サーバーが混雑しています。3秒後に再試行します... {attempt + 1}/3）")
-                time.sleep(3)
+                msg = f"サーバーが混雑しています。{retry_delay}秒後に再試行します... ({attempt + 1}/{max_retries})"
+                if on_retry:
+                    on_retry(msg)
+                else:
+                    print(f"（{msg}）")
+                time.sleep(retry_delay)
             else:
                 print(f"エラーが発生しました: {e}")
-                break
+                raise e
 
-    if not success:
-        print("千利休: 「申し訳ございませぬ、少し考えがまとまりませなんだ。もう一度お話しいただけますか。」\n")
+    return "申し訳ございませぬ、少し考えがまとまりませなんだ。もう一度お話しいただけますか。"
+
+
+# コマンドプロンプトから直接「py test.py」と実行された場合の処理
+if __name__ == "__main__":
+    # GitHubプッシュ保護対策：APIキーは環境変数またはダミー
+    api_key = os.environ.get("GEMINI_API_KEY") or "YOUR_GEMINI_API_KEY"
+    client = genai.Client(api_key=api_key)
+
+    chat = client.chats.create(
+        model="gemini-2.0-flash-lite",  # 混雑に強いモデル
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0.7,
+            max_output_tokens=1000,
+        ),
+    )
+
+    print("千利休との会話を開始します（終了するには 'exit' と入力）\n")
+
+    while True:
+        user_input = input("あなた: ")
+        if user_input.lower() in ["exit", "終了", "quit"]:
+            break
+
+        # 作成したリトライ関数を呼び出す
+        reply = send_message_with_retry(chat, user_input)
+        print(f"\n千利休: {reply}\n")
