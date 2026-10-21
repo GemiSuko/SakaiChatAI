@@ -16,6 +16,13 @@ if not api_key:
     st.error("⚠️ StreamlitのSecretsに GEMINI_API_KEY が設定されていません。")
     st.stop()
 
+# ★重要：クライアントを破棄させずキャッシュ（保持）する関数
+@st.cache_resource
+def get_client(key: str):
+    return genai.Client(api_key=key)
+
+client = get_client(api_key)
+
 # 千利休のプロンプト
 SYSTEM_PROMPT = """
 # あなたの役割
@@ -34,10 +41,9 @@ SYSTEM_PROMPT = """
 3. 一度の発話は、音声合成で聞き取りやすいよう「3文（150文字程度）以内」に収めてください。
 """
 
-# セッション状態の初期化
+# 会話セッションの初期化
 if "chat" not in st.session_state:
     try:
-        client = genai.Client(api_key=api_key)
         st.session_state.chat = client.chats.create(
             model="gemini-2.0-flash-lite",
             config=types.GenerateContentConfig(
@@ -54,7 +60,7 @@ if "chat" not in st.session_state:
         {"role": "assistant", "content": "ようこそ堺へお越しくださいました。私、千利休と申します。どうぞお茶でも召し上がりながら、何なりとお尋ねくだされ。"}
     ]
 
-# 過去の会話履歴を描画
+# 会話履歴の描画
 for msg in st.session_state.messages:
     avatar = "🍵" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
@@ -72,7 +78,7 @@ if user_input := st.chat_input("千利休にお尋ねください..."):
             reply = None
             max_retries = 3
 
-            # サーバー混雑対策（503リトライ）
+            # サーバー混雑対策（503自動再試行）
             for attempt in range(max_retries):
                 try:
                     response = st.session_state.chat.send_message(user_input)
@@ -84,7 +90,6 @@ if user_input := st.chat_input("千利休にお尋ねください..."):
                         status_area.caption(f"⚠️ サーバー混雑中。再試行しています... ({attempt + 1}/{max_retries})")
                         time.sleep(3)
                     else:
-                        # ★エラーの真相を画面に直接赤字で表示する
                         st.error(f"通信エラー詳細: {e}")
                         break
             status_area.empty()
