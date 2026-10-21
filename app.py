@@ -74,7 +74,7 @@ if user_input := st.chat_input("千利休にお尋ねください..."):
                     # 都度クライアントを作成して通信（接続切断エラーを完全回避）
                     client = genai.Client(api_key=api_key)
                     response = client.models.generate_content(
-                        model="gemini-2.0-flash-lite",
+                        model="gemini-3.5-flash-lite",
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
