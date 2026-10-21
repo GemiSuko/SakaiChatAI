@@ -1,71 +1,94 @@
 import os
+import time
 import streamlit as st
 from google import genai
 from google.genai import types
-
-# test.py からプロンプトとサーバーエラー対策（リトライ関数）をインポート
-from test import system_prompt, send_message_with_retry
 
 # 画面設定
 st.set_page_config(page_title="堺の観光ガイド 千利休", page_icon="🍵", layout="centered")
 st.title("🍵 堺観光案内 千利休")
 st.caption("堺の歴史や名所、お茶やお菓子についてお気軽にお尋ねください。")
 
-# APIキーの取得（Streamlit Secrets または 環境変数 から安全に取得）
+# SecretsからAPIキーを取得
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("APIキーが設定されていません。StreamlitのSecretsに GEMINI_API_KEY を設定してください。")
+    st.error("⚠️ StreamlitのSecretsに GEMINI_API_KEY が設定されていません。")
     st.stop()
 
-# 会話セッションの初期化
+# 千利休のプロンプト
+SYSTEM_PROMPT = """
+# あなたの役割
+あなたは「堺の偉人・千利休」として、観光客と楽しく会話をするガイドキャラクターです。
+
+# キャラクター設定
+・一人称：私（わたし）
+・二人称：あなた、〜様
+・口調：穏やかで、落ち着いた、知的なお茶人の話し方。
+・語尾の例：「〜でございます」「〜ですねぇ」「お茶でもいかがですか」
+・性格：おもてなしの心を大切にし、少しユーモアもある。現代のスマホやAR技術に対しては「不思議な術」として面白がっている。
+
+# 会話のルール
+1. 相手を温かく歓迎してください。
+2. 堺の歴史や茶の湯、和菓子に関する知識を交えて話してください。
+3. 一度の発話は、音声合成で聞き取りやすいよう「3文（150文字程度）以内」に収めてください。
+"""
+
+# セッション状態の初期化
 if "chat" not in st.session_state:
-    client = genai.Client(api_key=api_key)
-    st.session_state.chat = client.chats.create(
-        model="gemini-2.0-flash-lite",
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.7,
-            max_output_tokens=1000,
-        ),
-    )
-    # 初期メッセージ
+    try:
+        client = genai.Client(api_key=api_key)
+        st.session_state.chat = client.chats.create(
+            model="gemini-2.0-flash-lite",
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                temperature=0.7,
+                max_output_tokens=1000,
+            ),
+        )
+    except Exception as e:
+        st.error(f"初期化エラーが発生しました: {e}")
+        st.stop()
+
     st.session_state.messages = [
         {"role": "assistant", "content": "ようこそ堺へお越しくださいました。私、千利休と申します。どうぞお茶でも召し上がりながら、何なりとお尋ねくだされ。"}
     ]
 
-# 過去の会話履歴を画面に描画
+# 過去の会話履歴を描画
 for msg in st.session_state.messages:
     avatar = "🍵" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
 
-# ユーザーからの入力受付
+# ユーザー入力
 if user_input := st.chat_input("千利休にお尋ねください..."):
-    # ユーザー発言の表示・保存
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user", avatar="👤"):
         st.write(user_input)
 
-    # 千利休の返答生成
     with st.chat_message("assistant", avatar="🍵"):
         status_area = st.empty()
         with st.spinner("思案中..."):
-            # サーバー混雑時に画面上に再試行メッセージを一時表示するコールバック
-            def show_retry_status(msg):
-                status_area.caption(f"⚠️ {msg}")
+            reply = None
+            max_retries = 3
 
-            try:
-                # test.py で定義したエラー対策リトライ処理を実行
-                reply = send_message_with_retry(
-                    st.session_state.chat,
-                    user_input,
-                    on_retry=show_retry_status
-                )
-            except Exception as e:
-                reply = "申し訳ございませぬ、少し考えがまとまりませなんだ。もう一度お話しいただけますか。"
-            finally:
-                status_area.empty()  # 再試行案内を消去
+            # サーバー混雑対策（503リトライ）
+            for attempt in range(max_retries):
+                try:
+                    response = st.session_state.chat.send_message(user_input)
+                    reply = response.text
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
+                        status_area.caption(f"⚠️ サーバー混雑中。再試行しています... ({attempt + 1}/{max_retries})")
+                        time.sleep(3)
+                    else:
+                        # ★エラーの真相を画面に直接赤字で表示する
+                        st.error(f"通信エラー詳細: {e}")
+                        break
+            status_area.empty()
 
-        st.write(reply)
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        if reply:
+            st.write(reply)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
