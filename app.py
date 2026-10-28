@@ -4,7 +4,7 @@ import streamlit as st
 from openai import OpenAI
 
 # 別ファイル（characters.py）から設定データを読み込む
-from characters import COMMON_KNOWLEDGE, CHARACTERS
+from characters import COMMON_KNOWLEDGE, COMMON_SUGGESTIONS, CHARACTERS
 
 # ページ基本設定
 st.set_page_config(page_title="堺の観光ガイド AI", page_icon="🚲", layout="centered")
@@ -38,16 +38,15 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
 
-# ★ すでに質問した内容を除外してワンタップ質問ボタンを表示
+# ★ キャラ独自の質問 ＋ 全キャラ共通の質問 を結合し、質問済みを除外する
+all_suggestions = char_data.get("suggestions", []) + COMMON_SUGGESTIONS
 asked_questions = {m["content"] for m in st.session_state.messages if m["role"] == "user"}
-remaining_suggestions = [
-    q for q in char_data.get("suggestions", []) if q not in asked_questions
-]
+remaining_suggestions = [q for q in all_suggestions if q not in asked_questions]
 
 selected_prompt = None
 if remaining_suggestions:
     st.markdown("##### 💡 ワンタップで質問する")
-    # 未質問の候補から最大3つまでボタンを表示（押すと消えて次の候補が繰り上がる）
+    # 未質問の候補から最大3つまで表示（独自質問が優先され、押すと共通質問が繰り上がる）
     for q in remaining_suggestions[:3]:
         if st.button(q, use_container_width=True):
             selected_prompt = q
@@ -70,7 +69,7 @@ if user_input:
             reply = None
             max_retries = 3
 
-            # 選択中のキャラ設定 ＋ 共通知識 を合体
+            # 選択中のキャラ設定 ＋ 共通知識 を合体（質問リストはここには含まれません）
             full_system_prompt = char_data["prompt"] + "\n" + COMMON_KNOWLEDGE
 
             # OpenAI形式の会話履歴の組み立て
