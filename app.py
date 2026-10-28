@@ -1,8 +1,7 @@
 import os
 import time
 import streamlit as st
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 # 別ファイル（characters.py）から設定データを読み込む
 from characters import COMMON_KNOWLEDGE, CHARACTERS
@@ -10,10 +9,10 @@ from characters import COMMON_KNOWLEDGE, CHARACTERS
 # ページ基本設定
 st.set_page_config(page_title="堺の観光ガイド AI", page_icon="🚲", layout="centered")
 
-# SecretsからAPIキーを取得
-api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+# SecretsからOpenAIのAPIキーを取得
+api_key = st.secrets.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
 if not api_key:
-    st.error("⚠️ StreamlitのSecretsに GEMINI_API_KEY が設定されていません。")
+    st.error("⚠️ StreamlitのSecretsに OPENAI_API_KEY が設定されていません。")
     st.stop()
 
 # 画面タイトルとキャラクター選択UI
@@ -54,32 +53,26 @@ if user_input := st.chat_input(f"{selected_char_name}にお尋ねください...
             # 選択中のキャラ設定 ＋ 共通知識 を合体
             full_system_prompt = char_data["prompt"] + "\n" + COMMON_KNOWLEDGE
 
-            # 会話履歴の組み立て
-            contents = []
+            # OpenAI形式の会話履歴の組み立て（先頭にsystemプロンプトを配置）
+            openai_messages = [{"role": "system", "content": full_system_prompt}]
             for m in st.session_state.messages:
-                if m["role"] == "user":
-                    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=m["content"])]))
-                elif m["role"] == "assistant" and contents:
-                    contents.append(types.Content(role="model", parts=[types.Part.from_text(text=m["content"])]))
+                openai_messages.append({"role": m["role"], "content": m["content"]})
 
-            # サーバー混雑対策（503自動リトライ）
+            # サーバー混雑・レート制限対策（自動リトライ）
             for attempt in range(max_retries):
                 try:
-                    client = genai.Client(api_key=api_key)
-                    response = client.models.generate_content(
-                        model="gemini-3.5-flash-lite",
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            system_instruction=full_system_prompt,
-                            temperature=0.7,
-                            max_output_tokens=1000,
-                        ),
+                    client = OpenAI(api_key=api_key)
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=openai_messages,
+                        temperature=0.7,
+                        max_tokens=1000,
                     )
-                    reply = response.text
+                    reply = response.choices[0].message.content
                     break
                 except Exception as e:
                     err_str = str(e)
-                    if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
+                    if any(code in err_str for code in ["503", "502", "429", "RateLimit"]) and attempt < max_retries - 1:
                         status_area.caption(f"⚠️ サーバー混雑中。再試行しています... ({attempt + 1}/{max_retries})")
                         time.sleep(3)
                     else:
