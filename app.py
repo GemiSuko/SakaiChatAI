@@ -38,8 +38,24 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
 
-# ユーザー入力受付
-if user_input := st.chat_input(f"{selected_char_name}にお尋ねください..."):
+# ★ ワンタップ質問ボタン（サジェスト機能）の描画
+st.markdown("##### 💡 ワンタップで質問する")
+selected_prompt = None
+suggestions = char_data.get("suggestions", [])
+
+# スマホでも押しやすいよう横幅いっぱいのボタンを並べる
+for q in suggestions:
+    if st.button(q, use_container_width=True):
+        selected_prompt = q
+
+# チャット入力欄（手動入力も常時可能）
+chat_input = st.chat_input(f"{selected_char_name}にお尋ねください...")
+
+# ボタンが押されたテキスト、または手入力されたテキストのどちらかを採用
+user_input = selected_prompt or chat_input
+
+# 質問が送信された場合の処理
+if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user", avatar="👤"):
         st.write(user_input)
@@ -53,7 +69,7 @@ if user_input := st.chat_input(f"{selected_char_name}にお尋ねください...
             # 選択中のキャラ設定 ＋ 共通知識 を合体
             full_system_prompt = char_data["prompt"] + "\n" + COMMON_KNOWLEDGE
 
-            # OpenAI形式の会話履歴の組み立て（先頭にsystemプロンプトを配置）
+            # OpenAI形式の会話履歴の組み立て
             openai_messages = [{"role": "system", "content": full_system_prompt}]
             for m in st.session_state.messages:
                 openai_messages.append({"role": m["role"], "content": m["content"]})
@@ -83,3 +99,4 @@ if user_input := st.chat_input(f"{selected_char_name}にお尋ねください...
         if reply:
             st.write(reply)
             st.session_state.messages.append({"role": "assistant", "content": reply})
+            st.rerun()  # 画面を更新して最新の会話の下にボタンを再配置
