@@ -38,15 +38,19 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
 
-# ★ ワンタップ質問ボタン（サジェスト機能）の描画
-st.markdown("##### 💡 ワンタップで質問する")
-selected_prompt = None
-suggestions = char_data.get("suggestions", [])
+# ★ すでに質問した内容を除外してワンタップ質問ボタンを表示
+asked_questions = {m["content"] for m in st.session_state.messages if m["role"] == "user"}
+remaining_suggestions = [
+    q for q in char_data.get("suggestions", []) if q not in asked_questions
+]
 
-# スマホでも押しやすいよう横幅いっぱいのボタンを並べる
-for q in suggestions:
-    if st.button(q, use_container_width=True):
-        selected_prompt = q
+selected_prompt = None
+if remaining_suggestions:
+    st.markdown("##### 💡 ワンタップで質問する")
+    # 未質問の候補から最大3つまでボタンを表示（押すと消えて次の候補が繰り上がる）
+    for q in remaining_suggestions[:3]:
+        if st.button(q, use_container_width=True):
+            selected_prompt = q
 
 # チャット入力欄（手動入力も常時可能）
 chat_input = st.chat_input(f"{selected_char_name}にお尋ねください...")
@@ -99,4 +103,4 @@ if user_input:
         if reply:
             st.write(reply)
             st.session_state.messages.append({"role": "assistant", "content": reply})
-            st.rerun()  # 画面を更新して最新の会話の下にボタンを再配置
+            st.rerun()
