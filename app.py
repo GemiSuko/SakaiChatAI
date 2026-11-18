@@ -61,10 +61,13 @@ if remaining_suggestions:
     for q in remaining_suggestions[:3]:
         if st.button(q, use_container_width=True):
             selected_prompt = q
-
-# ★ 音声入力（マイク）ウィジェットの追加
-st.markdown("##### 🎤 音声で質問する")
-audio_value = st.audio_input("マイクの許可が必要です", label_visibility="collapsed")
+            
+# ★ 音声入力（マイク）ボタンを右下に配置するレイアウト
+col_spacer, col_mic = st.columns([6, 4])  # 左側の余白と右側のボタンの幅の比率
+with col_mic:
+    # popover（ボタンを押すと小さなウィンドウが開くUI）を使用
+    with st.popover("🎤 音声で質問", use_container_width=True):
+        audio_value = st.audio_input("録音ボタンを押して話す", label_visibility="collapsed")
 
 # チャット入力欄
 chat_input = st.chat_input(f"{selected_char_name}にお尋ねください...")
