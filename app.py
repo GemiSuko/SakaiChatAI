@@ -4,7 +4,7 @@ import streamlit as st
 from openai import OpenAI
 
 # 別ファイル（characters.py）から設定データを読み込む
-from characters import COMMON_KNOWLEDGE, COMMON_SUGGESTIONS, CHARACTERS
+from characters import COMMON_KNOWLEDGE, COMMON_SUGGESTIONS, CHARACTERS, TTS_REPLACEMENTS
 
 # ページ基本設定
 st.set_page_config(page_title="堺の観光ガイド AI", page_icon="🚲", layout="centered")
@@ -92,10 +92,15 @@ if user_input:
                     
                     # 2. ★ 生成されたテキストを音声に変換
                     with st.spinner("音声を準備中..."):
+                        # characters.pyの辞書を使って一括置換
+                        tts_text = reply
+                        for old_word, new_word in TTS_REPLACEMENTS.items():
+                            tts_text = tts_text.replace(old_word, new_word)
+                        
                         audio_response = client.audio.speech.create(
                             model="tts-1",
                             voice=char_data["voice"],
-                            input=reply
+                            input=tts_text
                         )
                         audio_bytes = audio_response.content
                         
