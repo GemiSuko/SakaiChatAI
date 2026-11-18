@@ -9,6 +9,12 @@ from characters import COMMON_KNOWLEDGE, COMMON_SUGGESTIONS, CHARACTERS, TTS_REP
 # ページ基本設定
 st.set_page_config(page_title="堺の観光ガイド AI", page_icon="🚲", layout="centered")
 
+# ★ 1. サイドバー（メニュー）に自動再生のON/OFFトグルを設置
+with st.sidebar:
+    st.header("⚙️ 音声設定")
+    autoplay_enabled = st.toggle("🔊 音声の自動再生", value=True)
+    st.caption("※スマートフォンのブラウザ設定（特にiPhone）によっては、自動再生が制限される場合があります。")
+
 # SecretsからOpenAIのAPIキーを取得
 api_key = st.secrets.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
 if not api_key:
@@ -32,14 +38,18 @@ if "current_char" not in st.session_state or st.session_state.current_char != se
         {"role": "assistant", "content": char_data["greeting"]}
     ]
 
-# 過去の会話履歴を描画
-for msg in st.session_state.messages:
+# ★ 2. 過去の会話履歴を描画（自動再生フラグの処理を追加）
+for i, msg in enumerate(st.session_state.messages):
     avatar = char_data["icon"] if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
-        # ★ もし過去のメッセージに音声データがあれば再生プレイヤーを表示
         if "audio" in msg and msg["audio"]:
-            st.audio(msg["audio"], format="audio/mp3")
+            # メッセージに自動再生ONのフラグが付いているか確認
+            do_autoplay = msg.get("autoplay", False)
+            st.audio(msg["audio"], format="audio/mp3", autoplay=do_autoplay)
+            
+            # 一度画面に出したらフラグをFalseにし、画面更新のたびに鳴るのを防ぐ
+            st.session_state.messages[i]["autoplay"] = False
 
 # キャラ独自の質問 ＋ 全キャラ共通の質問 を結合し、質問済みを除外する
 all_suggestions = char_data.get("suggestions", []) + COMMON_SUGGESTIONS
@@ -90,13 +100,12 @@ if user_input:
                     )
                     reply = response.choices[0].message.content
                     
-                    # 2. ★ 生成されたテキストを音声に変換
+                    # 2. 生成されたテキストを音声に変換
                     with st.spinner("音声を準備中..."):
-                        # characters.pyの辞書を使って一括置換
                         tts_text = reply
                         for old_word, new_word in TTS_REPLACEMENTS.items():
                             tts_text = tts_text.replace(old_word, new_word)
-                        
+                            
                         audio_response = client.audio.speech.create(
                             model="tts-1",
                             voice=char_data["voice"],
@@ -116,14 +125,11 @@ if user_input:
             status_area.empty()
 
         if reply:
-            st.write(reply)
-            if audio_bytes:
-                st.audio(audio_bytes, format="audio/mp3")
-                
-            # テキストと音声データをセッション履歴に保存
+            # ★ 3. 履歴に「メニューで設定された自動再生ON/OFF」を含めて保存し、再描画
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": reply,
-                "audio": audio_bytes
+                "audio": audio_bytes,
+                "autoplay": autoplay_enabled  
             })
             st.rerun()
