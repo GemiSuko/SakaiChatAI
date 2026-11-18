@@ -37,8 +37,11 @@ for msg in st.session_state.messages:
     avatar = char_data["icon"] if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         st.write(msg["content"])
+        # ★ もし過去のメッセージに音声データがあれば再生プレイヤーを表示
+        if "audio" in msg and msg["audio"]:
+            st.audio(msg["audio"], format="audio/mp3")
 
-# ★ キャラ独自の質問 ＋ 全キャラ共通の質問 を結合し、質問済みを除外する
+# キャラ独自の質問 ＋ 全キャラ共通の質問 を結合し、質問済みを除外する
 all_suggestions = char_data.get("suggestions", []) + COMMON_SUGGESTIONS
 asked_questions = {m["content"] for m in st.session_state.messages if m["role"] == "user"}
 remaining_suggestions = [q for q in all_suggestions if q not in asked_questions]
@@ -46,15 +49,13 @@ remaining_suggestions = [q for q in all_suggestions if q not in asked_questions]
 selected_prompt = None
 if remaining_suggestions:
     st.markdown("##### 💡 ワンタップで質問する")
-    # 未質問の候補から最大3つまで表示（独自質問が優先され、押すと共通質問が繰り上がる）
+    # 未質問の候補から最大3つまで表示
     for q in remaining_suggestions[:3]:
         if st.button(q, use_container_width=True):
             selected_prompt = q
 
-# チャット入力欄（手動入力も常時可能）
+# チャット入力欄
 chat_input = st.chat_input(f"{selected_char_name}にお尋ねください...")
-
-# ボタンが押されたテキスト、または手入力されたテキストのどちらかを採用
 user_input = selected_prompt or chat_input
 
 # 質問が送信された場合の処理
@@ -67,20 +68,20 @@ if user_input:
         status_area = st.empty()
         with st.spinner("思案中..."):
             reply = None
+            audio_bytes = None
             max_retries = 3
 
-            # 選択中のキャラ設定 ＋ 共通知識 を合体（質問リストはここには含まれません）
             full_system_prompt = char_data["prompt"] + "\n" + COMMON_KNOWLEDGE
 
-            # OpenAI形式の会話履歴の組み立て
             openai_messages = [{"role": "system", "content": full_system_prompt}]
             for m in st.session_state.messages:
                 openai_messages.append({"role": m["role"], "content": m["content"]})
 
-            # サーバー混雑・レート制限対策（自動リトライ）
+            # OpenAI API呼び出し（テキスト生成 ＆ 音声生成）
             for attempt in range(max_retries):
                 try:
                     client = OpenAI(api_key=api_key)
+                    # 1. テキストの生成
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=openai_messages,
@@ -88,6 +89,16 @@ if user_input:
                         max_tokens=1000,
                     )
                     reply = response.choices[0].message.content
+                    
+                    # 2. ★ 生成されたテキストを音声に変換
+                    with st.spinner("音声を準備中..."):
+                        audio_response = client.audio.speech.create(
+                            model="tts-1",
+                            voice=char_data["voice"],
+                            input=reply
+                        )
+                        audio_bytes = audio_response.content
+                        
                     break
                 except Exception as e:
                     err_str = str(e)
@@ -101,5 +112,13 @@ if user_input:
 
         if reply:
             st.write(reply)
-            st.session_state.messages.append({"role": "assistant", "content": reply})
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/mp3")
+                
+            # テキストと音声データをセッション履歴に保存
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": reply,
+                "audio": audio_bytes
+            })
             st.rerun()
